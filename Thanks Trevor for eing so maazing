@@ -1,0 +1,246 @@
+#include "model.h"
+#include "interface.h"
+
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include "math.h"
+
+typedef union{
+    double numberValue;
+    char strValue[50];
+
+}valueTypes;
+
+typedef struct depList{
+    int row;
+    int col;
+    struct depList* next;
+
+}depList;
+
+typedef struct {
+    char formula[50];
+    int isValue;
+    valueTypes nodeValues;
+    depList *head;
+
+    // Insert stack
+}Node;
+
+Node data[10][7];
+
+
+void model_init(ROW row, COL col) {
+    for (int i=0; i<10; i++){
+        for (int j=0; j<7; j++){
+            data[i][j].nodeValues.numberValue=0;
+            data[i][j].isValue =0;
+            strcpy(data[i][j].nodeValues.strValue, "\0");
+            strcpy(data[i][j].formula, "\0");
+            data[i][j].head = NULL;
+        }
+    }
+}
+
+void addDependency(depList **head, ROW row, COL col){
+    if (*head == NULL){
+        depList *depNode = (depList*)(malloc(sizeof(depList)));
+        depNode->next = NULL;
+        depNode->col=col;
+        depNode->row = row;
+        *head = depNode;
+        return;
+    }
+
+    depList * current = *head;
+    while(current != NULL){
+        if (current->row == row && current->col == col)
+            return;
+        else if (current->next == NULL){
+            depList *depNode = (depList*)(malloc(sizeof(depList)));
+            depNode->next = NULL;
+            depNode->col=col;
+            depNode->row = row;
+            current->next = depNode;
+        }
+        current = current->next;
+    }
+
+}
+
+void deleteDependency(depList **head, ROW row, COL col){
+    if (*head == NULL)
+        return;
+
+    depList * current = *head;
+
+    if (current->row == row && current->col == col){
+        *head = current->next;
+        free(current);
+        return;
+    }
+
+    while(current != NULL){
+        if (current->next->row == row && current->next->col == col){
+            depList *temp = current->next;
+            current->next = current->next->next;
+            free(temp);
+            return;
+        }
+        current = current->next;
+
+    }
+}
+
+void dependencyHandler(ROW row, COL col){
+    strcpy(data[col][row].formula, "");
+    data[col][row].isValue =1;
+
+}
+
+
+
+double formulaEvaluator(char *text, double total, ROW row, COL col, int flag){
+    if (text[0] =='\0'){
+        return total;
+    }
+    else if(text[0] == '-'){
+        total -= formulaEvaluator((text+1), total, row, col, flag);
+        return total;
+    }
+    else if(text[0] == '+'){
+        total += formulaEvaluator((text+1), total, row, col, flag);
+        return total;
+    }
+    else if(text[0] == '*'){
+        total *= formulaEvaluator((text+1), total, row, col, flag);
+        return total;
+    }
+    else if(text[0] == '/'){
+        total /= formulaEvaluator((text+1), total, row, col, flag);
+        return total;
+    }
+    else if(text[0]>= 'A' && text[0]<='G'){
+        COL depCol = text[0] - 'A';
+        text = text + 1;
+        ROW depRow = (int) strtol((text), &text, 10)-1;
+        total = data[depCol][depRow].nodeValues.numberValue;
+        if (flag ==0)
+            addDependency(&data[depCol][depRow].head, row, col);
+        else if (flag == 1)
+            deleteDependency(&data[depCol][depRow].head, row, col);
+        return formulaEvaluator(text, total, row, col, flag);
+
+    }
+    else if ((text[0]>32 && text[0] < 48)|| (text[0] > 57 && text[0] < 127)){
+        return NAN;
+    }
+
+    else{
+        total = strtol(text, &text, 10);
+        return formulaEvaluator((text), total, row, col, flag);
+    }
+}
+
+void set_cell_value(ROW row, COL col, char *text) {
+    // TODO: implement this.
+
+        if (text[0] =='=') {
+
+            char *formula = text + 1;
+
+            double value = formulaEvaluator(formula, 0, row, col, 0);
+            if (!isnan(value)) {
+                data[col][row].nodeValues.numberValue = value;
+                data[col][row].isValue = 2;
+
+                char displayString[20];
+                snprintf(displayString, sizeof(displayString), "%.2lf", data[col][row].nodeValues.numberValue);
+
+                update_cell_display(row, col, displayString);
+            }
+            else{
+                strcpy(data[col][row].nodeValues.strValue, text+1);
+                data[col][row].isValue = 2;
+
+                update_cell_display(row, col, data[col][row].nodeValues.strValue);
+            }
+
+            strcpy(data[col][row].formula, text);
+    }
+
+        else {
+        char *textPointer;
+
+        long numberValue = strtol(text, &textPointer, 10);
+
+        if (*textPointer != '\0' ){
+            strcpy(data[col][row].nodeValues.strValue, text);
+            update_cell_display(row, col, data[col][row].nodeValues.strValue);
+            data[col][row].isValue=0;
+        }
+        else{
+            data[col][row].nodeValues.numberValue = numberValue;
+
+            char displayString[20];
+            snprintf(displayString, sizeof(displayString), "%.2lf", data[col][row].nodeValues.numberValue);
+            data[col][row].isValue=1;
+
+            update_cell_display(row, col, displayString);
+
+
+        }
+
+    }
+    depList * current = data[col][row].head;
+        while(current != NULL){
+            ROW depRow = current->row;
+            COL depCol = current->col;
+            set_cell_value(depRow, depCol, data[depCol][depRow].formula);
+            current = current->next;
+        }
+
+    }
+
+void clear_cell(ROW row, COL col) {
+    // TODO: implement this.
+    formulaEvaluator(data[col][row].formula+1, 0, row, col, 1);
+    data[col][row].nodeValues.numberValue=NAN;
+    data[col][row].isValue = 0;
+    strcpy(data[col][row].nodeValues.strValue, "");
+    strcpy(data[col][row].formula, "");
+    depList * current = data[col][row].head;
+
+    while (current!= NULL){
+        dependencyHandler(current->row, current->col);
+        current = current->next;
+    }
+    
+    data[col][row].head = NULL;
+    //This just clears the display without updating any data structure. You will need to change this.
+    update_cell_display(row, col, "");
+}
+
+char *get_textual_value(ROW row, COL col) {
+    if (data[col][row].isValue==1){
+
+        char displayString[20];
+        snprintf(displayString, sizeof(displayString), "%.2lf", data[col][row].nodeValues.numberValue);
+        return strdup(displayString);
+
+    }
+    else if(data[col][row].isValue==0){
+
+       // return data[row][col].nodeValues.strValue;
+       return strdup(data[col][row].nodeValues.strValue);
+
+    }
+    else if (data[col][row].isValue==2){
+        return strdup(data[col][row].formula);
+   }
+    else{
+        return NULL;
+    }
+}
